@@ -711,6 +711,11 @@ const spells = spellIndexableList({
     name: 'Wrath',
     icon: 'spell_nature_wrathv2',
   },
+  SOLSTICE: {
+    id: 343647,
+    name: 'Solstice',
+    icon: 'artifactability_balancedruid_moonandstars',
+  },
   SUNFIRE: {
     id: 164815,
     name: 'Sunfire',

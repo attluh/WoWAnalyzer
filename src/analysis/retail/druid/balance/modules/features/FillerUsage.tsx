@@ -12,6 +12,18 @@ import { hardcastTargetsHit } from '../../normalizers/CastLinkNormalizer';
 // minimum targets Starfire must hit for it to be worth to cast in lunar eclipse/CA
 export const STARFIRE_TARGETS_FOR_SOLAR = 2;
 
+// Priority outside of CA/Inc
+// On <=2 targets enter Solar Eclipse and cast Wrath
+export const WRATH_TARGETS_FOR_SOLAR = 2;
+// On 3+ targets enter Lunar Eclipse and cast Starfire
+export const STARFIRE_TARGETS_FOR_LUNAR = 3;
+
+// Priority inside of CA/Inc
+// On <=3 targets fill with Wrath
+export const WRATH_TARGETS_FOR_CA = 3;
+// On 4+ targets fill with Starfire
+export const STARFIRE_TARGETS_FOR_CA = 4;
+
 const MINOR_THRESHOLD = 0;
 const AVERAGE_THRESHOLD = 0.05;
 const MAJOR_THRESHOLD = 0.1;
@@ -26,23 +38,102 @@ class FillerUsage extends Analyzer {
     super(options);
 
     this.addEventListener(Events.cast.by(SELECTED_PLAYER).spell(SPELLS.STARFIRE), this.onStarfire);
+    this.addEventListener(Events.cast.by(SELECTED_PLAYER).spell(SPELLS.WRATH), this.onWrath);
+  }
+
+  isBadFillerEnteringEclipse(correctTargetsHit: boolean) {
+    return (
+      // Not in Lunar/Solar Eclipse, or CA/Inc
+      !(
+        this.selectedCombatant.hasBuff(SPELLS.ECLIPSE_LUNAR.id) ||
+        this.selectedCombatant.hasBuff(SPELLS.ECLIPSE_SOLAR.id) ||
+        this.selectedCombatant.hasBuff(cooldownAbility(this.selectedCombatant).id)
+      ) &&
+      // Targets
+      correctTargetsHit
+    );
+  }
+
+  isBadFillerInsideEclipse(correctTargetsHit: boolean) {
+    return (
+      // In Lunar/Solar Eclipse
+      (this.selectedCombatant.hasBuff(SPELLS.ECLIPSE_LUNAR.id) ||
+        this.selectedCombatant.hasBuff(SPELLS.ECLIPSE_SOLAR.id)) &&
+      // Not in CA/Inc
+      !this.selectedCombatant.hasBuff(cooldownAbility(this.selectedCombatant).id) &&
+      // Targets
+      correctTargetsHit
+    );
+  }
+
+  isBadFillerInsideCooldowns(correctTargetsHit: boolean) {
+    // In CA/Inc
+    return (
+      this.selectedCombatant.hasBuff(cooldownAbility(this.selectedCombatant).id) &&
+      correctTargetsHit
+    );
+  }
+
+  registerBadFillerCast(event: CastEvent, inefficientCastReason: string) {
+    DEBUG &&
+      console.log(
+        `Bad Filler: ${event.ability.name} @ ${this.owner.formatTimestamp(event.timestamp)}`,
+      );
+    this.badFillerCasts += 1;
+    event.meta = event.meta || {};
+    event.meta.isInefficientCast = true;
+    event.meta.inefficientCastReason = `This was the wrong filler for the situation! ${inefficientCastReason}`;
   }
 
   onStarfire(event: CastEvent) {
     this.totalFillerCasts += 1;
-    if (
-      !(
-        this.selectedCombatant.hasBuff(SPELLS.ECLIPSE_LUNAR.id) ||
-        this.selectedCombatant.hasBuff(SPELLS.ECLIPSE_SOLAR.id) ||
-        cooldownAbility(this.selectedCombatant).id
-      ) &&
-      hardcastTargetsHit(event) < STARFIRE_TARGETS_FOR_SOLAR
-    ) {
-      DEBUG && console.log('Bad Starfire @ ' + this.owner.formatTimestamp(event.timestamp));
-      this.badFillerCasts += 1;
-      event.meta = event.meta || {};
-      event.meta.isInefficientCast = true;
-      event.meta.inefficientCastReason = `This was the wrong filler for the situation! you should use Wrath when out of eclipse and also in eclipse unless you can hit at least ${STARFIRE_TARGETS_FOR_SOLAR} targets.`;
+    const targetsHit = hardcastTargetsHit(event);
+
+    if (this.isBadFillerInsideCooldowns(targetsHit < STARFIRE_TARGETS_FOR_CA)) {
+      this.registerBadFillerCast(
+        event,
+        `You should use Wrath when inside CA/Inc on less than ${STARFIRE_TARGETS_FOR_CA} targets.`,
+      );
+    }
+
+    if (this.isBadFillerEnteringEclipse(targetsHit >= STARFIRE_TARGETS_FOR_CA)) {
+      this.registerBadFillerCast(
+        event,
+        `You should use Wrath when out of eclipse to enter Lunar Eclipse on ${STARFIRE_TARGETS_FOR_LUNAR} or more targets.`,
+      );
+    }
+
+    if (this.isBadFillerInsideEclipse(targetsHit < STARFIRE_TARGETS_FOR_CA)) {
+      this.registerBadFillerCast(
+        event,
+        `You should use Wrath when inside eclipse on less than ${STARFIRE_TARGETS_FOR_LUNAR} targets.`,
+      );
+    }
+  }
+
+  onWrath(event: CastEvent) {
+    this.totalFillerCasts += 1;
+    const targetsHit = hardcastTargetsHit(event);
+
+    if (this.isBadFillerInsideCooldowns(targetsHit > WRATH_TARGETS_FOR_CA)) {
+      this.registerBadFillerCast(
+        event,
+        `You should use Starfire when inside CA/Inc on more than ${WRATH_TARGETS_FOR_CA} targets.`,
+      );
+    }
+
+    if (this.isBadFillerEnteringEclipse(targetsHit > WRATH_TARGETS_FOR_SOLAR)) {
+      this.registerBadFillerCast(
+        event,
+        `You should use Starfire when out of eclipse to enter Solar Eclipse on ${WRATH_TARGETS_FOR_SOLAR} or less targets.`,
+      );
+    }
+
+    if (this.isBadFillerInsideEclipse(targetsHit > WRATH_TARGETS_FOR_SOLAR)) {
+      this.registerBadFillerCast(
+        event,
+        `You should use Starfire when inside eclipse on more than ${WRATH_TARGETS_FOR_SOLAR} targets.`,
+      );
     }
   }
 
